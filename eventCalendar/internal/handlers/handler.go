@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"eventCalendar/internal/logger"
 	"eventCalendar/internal/models"
 	"eventCalendar/internal/storage"
 	"eventCalendar/internal/utils"
@@ -11,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func CreateEventHandler(storage *storage.Storage) gin.HandlerFunc {
+func CreateEventHandler(storage *storage.Storage, notificationChan chan<- models.NotificationJob) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var newEvent models.Event
 		if err := c.ShouldBindJSON(&newEvent); err != nil {
@@ -21,10 +22,7 @@ func CreateEventHandler(storage *storage.Storage) gin.HandlerFunc {
 			})
 			return
 		}
-		if newEvent.HaveNotification {
-			//todo добавляем в фоновый ворекер
 
-		}
 		isEventValid, err := utils.IsEventValid(&newEvent)
 		if !isEventValid && err != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse{
@@ -33,6 +31,7 @@ func CreateEventHandler(storage *storage.Storage) gin.HandlerFunc {
 			})
 			return
 		}
+
 		err = storage.CreateEvent(&newEvent)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse{
@@ -40,6 +39,25 @@ func CreateEventHandler(storage *storage.Storage) gin.HandlerFunc {
 				Error: "Failed to create event",
 			})
 			return
+		}
+
+		if newEvent.HaveNotification {
+			eventDate, err := time.Parse("2006-01-02", newEvent.Date)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+					Code:  http.StatusInternalServerError,
+					Error: "error on parse event date for notification",
+				})
+				return
+			}
+			RemindTime := eventDate.Add(-24 * time.Hour)
+			job := models.NotificationJob{ID: newEvent.ID, ReminderTime: RemindTime}
+			select {
+			case notificationChan <- job:
+				logger.Info(fmt.Sprintf("Notification job for event %d queued for %v", job.ID, job.ReminderTime))
+			default:
+				logger.Error(fmt.Sprintf("Notification queue is full, dropping job for event %d", job.ID))
+			}
 		}
 
 		c.JSON(http.StatusOK, models.SuccessResponse{

@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 const (
 	StatusScheduled = "scheduled"
 	StatusCompleted = "completed"
@@ -13,6 +15,11 @@ type Event struct {
 	Date             string `json:"date"`
 	Status           string `json:"status"`
 	HaveNotification bool   `json:"have_notification"`
+}
+
+type NotificationJob struct {
+	ID           int
+	ReminderTime time.Time
 }
 
 type ErrorResponse struct {

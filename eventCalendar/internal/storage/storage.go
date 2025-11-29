@@ -3,12 +3,12 @@ package storage
 import (
 	"context"
 	"eventCalendar/internal/config"
+	"eventCalendar/internal/logger"
 	"eventCalendar/internal/models"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/quay/zlog"
 )
 
 type Storage struct {
@@ -24,13 +24,14 @@ func New(confDb *config.DBConfig) *Storage {
 }
 
 func (s *Storage) CreateEvent(event *models.Event) error {
-	query := "INSERT INTO EVENTS(NAME,DESCRIPTION,STATUS,EVENT_DATE,HAVE_NOTIFICATION) VALUES($1,$2,$3,$4,$5);"
-	_, err := s.DB.Exec(context.Background(), query, event.Name, event.Description, event.Status, event.Date, event.HaveNotification)
+	query := "INSERT INTO EVENTS(NAME,DESCRIPTION,STATUS,EVENT_DATE,HAVE_NOTIFICATION) VALUES($1,$2,$3,$4,$5) RETURNING ID;"
+	var newID int
+	err := s.DB.QueryRow(context.Background(), query, event.Name, event.Description, event.Status, event.Date, event.HaveNotification).Scan(&newID)
 	if err != nil {
-		return fmt.Errorf("error on operating exec insert into events, event: %v", event)
+		return fmt.Errorf("error on inserting event and returning ID: %v", err)
 	}
-
-	zlog.Info(context.Background()).Msgf("Event succesfully created. Item : %v", event)
+	event.ID = newID
+	logger.Info(fmt.Sprintf("Event successfully created. Item : %v", event))
 	return nil
 }
 
@@ -63,7 +64,7 @@ func (s *Storage) UpdateEvent(req *models.EventModificationRequest) error {
 		}
 	}
 
-	zlog.Info(context.Background()).Msgf("Succesfully updated event:  %v", req.ID)
+	logger.Info(fmt.Sprintf("Succesfully updated event:  %v", req.ID))
 	return nil
 
 }
@@ -96,7 +97,7 @@ func (s *Storage) DeleteEvent(id int) error {
 	if err != nil {
 		return fmt.Errorf("error executing delete query: %w", err)
 	}
-	zlog.Info(context.Background()).Msgf("event with ID %d deleted successfully", id)
+	logger.Info(fmt.Sprintf("event with ID %d deleted successfully", id))
 	return nil
 }
 
@@ -217,4 +218,37 @@ func (s *Storage) GetEventsForMonth(dateStr string) ([]models.Event, error) {
 	}
 
 	return events, nil
+}
+
+func (s *Storage) ArchiveOldEvents(ctx context.Context, cutoffTime time.Time) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for archiving: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	insertQuery := `
+    INSERT INTO ARCHIVE (EVENT_ID, ADDED_AT) SELECT ID, $4
+    FROM EVENTS WHERE (STATUS = $1 OR STATUS = $2) AND EVENT_DATE < $3;`
+	_, err = tx.Exec(ctx, insertQuery, models.StatusCompleted, models.StatusCancelled, cutoffTime, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to insert old events into archive: %w", err)
+	}
+
+	deleteQuery := `
+        DELETE FROM EVENTS
+        WHERE (STATUS = $1 OR STATUS = $2) AND EVENT_DATE < $3;
+    `
+	commandTag, err := tx.Exec(ctx, deleteQuery, models.StatusCompleted, models.StatusCancelled, cutoffTime)
+	if err != nil {
+		return fmt.Errorf("failed to delete old events from main table: %w", err)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction for archiving: %w", err)
+	}
+
+	rowsAffected := commandTag.RowsAffected()
+	logger.Info(fmt.Sprintf("Archived %d old events before %v", rowsAffected, cutoffTime))
+	return nil
 }

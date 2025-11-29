@@ -3,6 +3,7 @@ package server
 import (
 	"eventCalendar/internal/config"
 	"eventCalendar/internal/handlers"
+	"eventCalendar/internal/models"
 	"eventCalendar/internal/storage"
 	"net/http"
 
@@ -10,13 +11,14 @@ import (
 )
 
 type Server struct {
-	Router     *gin.Engine
-	HttpServer *http.Server
-	Storage    *storage.Storage
+	Router           *gin.Engine
+	HttpServer       *http.Server
+	Storage          *storage.Storage
+	NotificationChan chan<- models.NotificationJob
 }
 
-func New(Config *config.Config, storage *storage.Storage) *Server {
-	server := &Server{Router: gin.New(), Storage: storage}
+func New(Config *config.Config, storage *storage.Storage, ch chan models.NotificationJob) *Server {
+	server := &Server{Router: gin.New(), Storage: storage, NotificationChan: ch}
 
 	server.Router.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
@@ -41,7 +43,7 @@ func New(Config *config.Config, storage *storage.Storage) *Server {
 }
 
 func (s *Server) setupRoutes() {
-	s.Router.POST("/create_event", handlers.CreateEventHandler(s.Storage))
+	s.Router.POST("/create_event", handlers.CreateEventHandler(s.Storage, s.NotificationChan))
 	s.Router.POST("/update_event", handlers.UpdateEventHandler(s.Storage))
 	s.Router.POST("/delete_event", handlers.DeleteEventHandler(s.Storage))
 	s.Router.GET("/events_for_day", handlers.GetEventsForDayHandler(s.Storage))

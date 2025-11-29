@@ -8,8 +8,6 @@ CREATE TABLE IF NOT EXISTS EVENTS(
     EVENT_DATE TIMESTAMP NOT NULL
 );
 
----добавить рефактор на добавление есть ли напоминание на ивент 
-
 CREATE TABLE IF NOT EXISTS ARCHIVE(
     ID SERIAL PRIMARY KEY,
     EVENT_ID INT REFERENCES EVENTS(ID),

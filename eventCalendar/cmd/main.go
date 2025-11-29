@@ -1,21 +1,27 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"eventCalendar/internal/config"
+	"eventCalendar/internal/logger"
+	"eventCalendar/internal/models"
 	"eventCalendar/internal/server"
 	"eventCalendar/internal/storage"
+	"eventCalendar/internal/workers"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/lib/pq"
+	"github.com/quay/zlog"
 )
 
 // Полноценный HTTP-сервис (описан в задаче 18 уровня 2).
@@ -38,9 +44,18 @@ func main() {
 	}
 
 	log.Println("migrations done")
-
+	jobChan := make(chan models.NotificationJob, 100)
 	db := storage.New(&conf.DB)
-	server := server.New(conf, db)
+	server := server.New(conf, db, jobChan)
+
+	go func() {
+		workers.StartArchivalWorker(db, time.Minute*10)
+	}()
+
+	go func() {
+		zlog.Info(context.Background()).Msgf("Start notification workesr")
+		workers.StartNotificationJobWorker(jobChan)
+	}()
 
 	go func() {
 		err := server.HttpServer.ListenAndServe()
@@ -55,6 +70,8 @@ func main() {
 
 	<-done
 
+	logger.Close()
+	close(jobChan)
 }
 
 func runMigrations(dsn, filePath string) error {
