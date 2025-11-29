@@ -2,12 +2,13 @@
 
 Клонируйте репозиторий:
 
-```bash
+```
 git clone https://github.com/v1adis1av28/level4
 cd EventCalendar
 ```
-    #Чтобы запустить проект выполените:
-    docker-compose up --build
+```
+#Чтобы запустить проект выполените:
+docker-compose up --build
 ```
 Приложение будет доступно по адресу `http://localhost:8080` (или другому порту, указанному в компоузе или конфиг файле).
 Для остановки нажми `Ctrl+C` в терминале или выполните `docker-compose down`.
@@ -35,7 +36,7 @@ eventCalendar/
 │   └── logger/                 #  ассинхронный логгер
 ├── docker-compose.yml          
 │__ Dockerfile                  
-
+```
 
 ## API 
 
